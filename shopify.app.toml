@@ -1,0 +1,32 @@
+# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "c64018b1b9bdc64a3924b0c79b2215e0"
+name = "expiry-management"
+handle = "expiry-management"
+application_url = "https://container-blackberry-descending-tm.trycloudflare.com"
+embedded = true
+
+[access_scopes]
+# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
+scopes = "write_products"
+
+[auth]
+redirect_urls = [
+  "https://container-blackberry-descending-tm.trycloudflare.com/auth/callback",
+  "https://container-blackberry-descending-tm.trycloudflare.com/auth/shopify/callback",
+  "https://container-blackberry-descending-tm.trycloudflare.com/api/auth/callback"
+]
+
+[webhooks]
+api_version = "2024-10"
+
+  [[webhooks.subscriptions]]
+  topics = [ "app/uninstalled" ]
+  uri = "/webhooks/app/uninstalled"
+
+[pos]
+embedded = false
+
+[build]
+dev_store_url = "cars-extended-warranty.myshopify.com"
+automatically_update_urls_on_dev = true
