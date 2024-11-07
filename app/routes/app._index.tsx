@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
-import { json } from "@remix-run/node";
-import { useFetcher, useLoaderData } from "@remix-run/react";
+import { useFetcher, useLoaderData, json } from "@remix-run/react";
 import {
 	Page,
 	Layout,
@@ -10,141 +9,78 @@ import {
 	Button,
 	BlockStack,
 	Box,
-	List,
 	Link,
 	InlineStack,
-	IndexTable,
 } from "@shopify/polaris";
 import { TitleBar, useAppBridge } from "@shopify/app-bridge-react";
-import { authenticate } from "../shopify.server";
-import { ExpirationManager } from "app/features/expiration-manager/components/expiration-manager";
+import { generateProduct, loadProducts } from "app/services/shopify.service";
+import {
+	addExpiryDate,
+	AddPayload,
+	getProductExpiryDate,
+	updateExpiryDate,
+	UpdatePayload,
+} from "app/features/expiration-manager/api/expiration-manager.server";
+import ProductTable from "app/features/expiration-manager/components/product-table";
+
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
-	const { admin } = await authenticate.admin(request);
-	const response = await admin.graphql(
-		`#graphql
-      query getAllProducts {
-        products(first: 10) {
-          edges {
-            node {
-              id
-			  featuredMedia {
-                preview {
-                  image {
-                    url
-                  }
-                }
-              }
-              title
-              handle
-              status
-              tags
-              metafields(first: 10) {
-                edges {
-                  node {
-                    id
-                    key
-                    value
-                  }
-                }
-              }
-              variants(first: 10) {
-                edges {
-                  node {
-                    id
-                    price
-                    barcode
-                    createdAt
-                  }
-                }
-              }
-            }
-          }
-        }
-      }`,
-	);
-	const responseJson = await response.json();
-
-	return json({
-		products: responseJson!.data.products.edges,
-	});
+	return await loadProducts(request);
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-	const { admin } = await authenticate.admin(request);
-	const color = ["Red", "Orange", "Yellow", "Green"][
-		Math.floor(Math.random() * 4)
-	];
-	const response = await admin.graphql(
-		`#graphql
-      mutation populateProduct($input: ProductInput!) {
-        productCreate(input: $input) {
-          product {
-            id
-            title
-            handle
-            status
-            variants(first: 10) {
-              edges {
-                node {
-                  id
-                  price
-                  barcode
-                  createdAt
-                }
-              }
-            }
-          }
-        }
-      }`,
-		{
-			variables: {
-				input: {
-					title: `${color} Snowboard`,
-				},
-			},
-		},
-	);
-	const responseJson = await response.json();
+	const data: any = Object.fromEntries(await request.formData());
 
-	const product = responseJson.data!.productCreate!.product!;
-	const variantId = product.variants.edges[0]!.node!.id!;
+	if (data?.action === "generateProduct") {
 
-	const variantResponse = await admin.graphql(
-		`#graphql
-    mutation shopifyRemixTemplateUpdateVariant($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
-      productVariantsBulkUpdate(productId: $productId, variants: $variants) {
-        productVariants {
-          id
-          price
-          barcode
-          createdAt
-        }
-      }
-    }`,
-		{
-			variables: {
-				productId: product.id,
-				variants: [{ id: variantId, price: "100.00" }],
-			},
-		},
-	);
+		console.log("Generating Product...");
+		return await generateProduct(request);
+	} else if (data?.action === "saveProduct") {
 
-	const variantResponseJson = await variantResponse.json();
+		const id = data?.productId.replace("gid://shopify/Product/", "");
+		const existingField = await getProductExpiryDate(Number(id), request);
 
-	return json({
-		product: responseJson!.data!.productCreate!.product,
-		variant:
-			variantResponseJson!.data!.productVariantsBulkUpdate!.productVariants,
-	});
+		if (existingField) {
+			const payload: UpdatePayload = {
+				productId: Number(id),
+				fieldId: existingField.id,
+				expirationDate: data?.expirationDate,
+			};
+
+			const metafield = await updateExpiryDate(request, payload);
+
+			return json({
+				metafield,
+				product: null,
+				variant: null
+			});
+		} else {
+			const payload: AddPayload = {
+				productId: Number(id),
+				expirationDate: data?.expirationDate,
+			};
+
+			const metafield = await addExpiryDate(request, payload);
+
+			return json({
+				metafield,
+				product: null,
+				variant: null
+			});
+		}
+	}
+
+	return null;
 };
 
 export default function Index() {
 	const fetcher = useFetcher<typeof action>();
 	const loaderData = useLoaderData<typeof loader>();
 	const shopify = useAppBridge();
-	const isLoading = ["loading", "submitting"].includes(fetcher.state);
-	fetcher.formMethod === "POST";
+
+	const isLoading =
+		["loading", "submitting"].includes(fetcher.state) &&
+		fetcher.formMethod === "POST";
 	const productId = fetcher.data?.product?.id.replace(
 		"gid://shopify/Product/",
 		"",
@@ -155,49 +91,10 @@ export default function Index() {
 			shopify.toast.show("Product created");
 		}
 	}, [productId, shopify]);
-	const generateProduct = () => fetcher.submit({}, { method: "POST" });
 
-	const rowMarkup = loaderData.products.map(
-		(
-			{
-				node: {
-					id,
-					title,
-					date,
-					handle,
-					status,
-					paymentStatus,
-					fulfillmentStatus,
-				},
-			},
-			index,
-		) => (
-			<IndexTable.Row
-				id={id}
-				key={id}
-				// selected={selectedResources.includes(id)}
-				position={index}
-			>
-				<IndexTable.Cell>
-					<Text variant="bodyMd" fontWeight="bold" as="span">
-						{title}
-					</Text>
-				</IndexTable.Cell>
-				<IndexTable.Cell>{date}</IndexTable.Cell>
-				<IndexTable.Cell>{handle}</IndexTable.Cell>
-				<IndexTable.Cell>
-					<Text as="span" alignment="end" numeric>
-						{status}
-					</Text>
-				</IndexTable.Cell>
-				<IndexTable.Cell>
-					<ExpirationManager productId={id} />
-				</IndexTable.Cell>
-				<IndexTable.Cell>{paymentStatus}</IndexTable.Cell>
-				<IndexTable.Cell>{fulfillmentStatus}</IndexTable.Cell>
-			</IndexTable.Row>
-		),
-	);
+	const generateProduct = () =>
+		fetcher.submit({ action: "generateProduct" }, { method: "POST" });
+
 	return (
 		<Page fullWidth>
 			<TitleBar title="Remix app template">
@@ -207,233 +104,118 @@ export default function Index() {
 			</TitleBar>
 			<BlockStack gap="800">
 				<Layout>
-					<Card>
-						<IndexTable
-							itemCount={loaderData.products.length}
-							// columnContentTypes={["text", "text", "text"]}
-							headings={[
-								{ title: "Title" },
-								{ title: "Date" },
-								{ title: "Handle" },
-								{
-									title: "Expiration Date",
-								},
-								{
-									title: "Expiration Status",
-								},
-								{ title: "Payment status" },
-								{ title: "Fulfillment status" },
-							]}
-						>
-							{rowMarkup}
-						</IndexTable>
-					</Card>
-					<Card>
-						<BlockStack gap="500">
-							<BlockStack gap="200">
-								<Text as="h2" variant="headingMd">
-									Congrats on creating a new Shopify app 🎉
-								</Text>
-								<Text variant="bodyMd" as="p">
-									This embedded app template uses{" "}
-									<Link
-										url="https://shopify.dev/docs/apps/tools/app-bridge"
-										target="_blank"
-										removeUnderline
-									>
-										App Bridge
-									</Link>{" "}
-									interface examples like an{" "}
-									<Link url="/app/additional" removeUnderline>
-										additional page in the app nav
-									</Link>
-									, as well as an{" "}
-									<Link
-										url="https://shopify.dev/docs/api/admin-graphql"
-										target="_blank"
-										removeUnderline
-									>
-										Admin GraphQL
-									</Link>{" "}
-									mutation demo, to provide a starting point for app
-									development.
-								</Text>
-							</BlockStack>
-							<BlockStack gap="200">
-								<pre>{JSON.stringify(loaderData, null, 2)}</pre>
-								<Text as="h3" variant="headingMd">
-									Get started with products
-								</Text>
-								<Text as="p" variant="bodyMd">
-									Generate a product with GraphQL and get the JSON output for
-									that product. Learn more about the{" "}
-									<Link
-										url="https://shopify.dev/docs/api/admin-graphql/latest/mutations/productCreate"
-										target="_blank"
-										removeUnderline
-									>
-										productCreate
-									</Link>{" "}
-									mutation in our API references.
-								</Text>
-							</BlockStack>
-							<InlineStack gap="300">
-								<Button loading={isLoading} onClick={generateProduct}>
-									Generate a product
-								</Button>
-								{fetcher.data?.product && (
-									<Button
-										url={`shopify:admin/products/${productId}`}
-										target="_blank"
-										variant="plain"
-									>
-										View product
+					<Layout.Section>
+						<Card>
+							<ProductTable products={loaderData.products} />
+						</Card>
+					</Layout.Section>
+
+					<Layout.Section>
+						<Card>
+							<BlockStack gap="500">
+								<BlockStack gap="200">
+									<Text as="h2" variant="headingMd">
+										Congrats on creating a new Shopify app 🎉
+									</Text>
+									<Text variant="bodyMd" as="p">
+										This embedded app template uses{" "}
+										<Link
+											url="https://shopify.dev/docs/apps/tools/app-bridge"
+											target="_blank"
+											removeUnderline
+										>
+											App Bridge
+										</Link>{" "}
+										interface examples like an{" "}
+										<Link url="/app/additional" removeUnderline>
+											additional page in the app nav
+										</Link>
+										, as well as an{" "}
+										<Link
+											url="https://shopify.dev/docs/api/admin-graphql"
+											target="_blank"
+											removeUnderline
+										>
+											Admin GraphQL
+										</Link>{" "}
+										mutation demo, to provide a starting point for app
+										development.
+									</Text>
+								</BlockStack>
+								<BlockStack gap="200">
+									<pre>{JSON.stringify(loaderData, null, 2)}</pre>
+									<Text as="h3" variant="headingMd">
+										Get started with products
+									</Text>
+									<Text as="p" variant="bodyMd">
+										Generate a product with GraphQL and get the JSON output for
+										that product. Learn more about the{" "}
+										<Link
+											url="https://shopify.dev/docs/api/admin-graphql/latest/mutations/productCreate"
+											target="_blank"
+											removeUnderline
+										>
+											productCreate
+										</Link>{" "}
+										mutation in our API references.
+									</Text>
+								</BlockStack>
+								<InlineStack gap="300">
+									<Button loading={isLoading} onClick={generateProduct}>
+										Generate a product
 									</Button>
-								)}
-							</InlineStack>
-							{fetcher.data?.product && (
-								<BlockStack>
-									<Text as="h3" variant="headingMd">
-										{" "}
-										productCreate mutation
-									</Text>
-									<Box
-										padding="400"
-										background="bg-surface-active"
-										borderWidth="025"
-										borderRadius="200"
-										borderColor="border"
-										overflowX="scroll"
-									>
-										<pre style={{ margin: 0 }}>
-											<code>
-												{JSON.stringify(fetcher.data.product, null, 2)}
-											</code>
-										</pre>
-									</Box>
-									<Text as="h3" variant="headingMd">
-										{" "}
-										productVariantsBulkUpdate mutation
-									</Text>
-									<Box
-										padding="400"
-										background="bg-surface-active"
-										borderWidth="025"
-										borderRadius="200"
-										borderColor="border"
-										overflowX="scroll"
-									>
-										<pre style={{ margin: 0 }}>
-											<code>
-												{JSON.stringify(fetcher.data.variant, null, 2)}
-											</code>
-										</pre>
-									</Box>
-								</BlockStack>
-							)}
-						</BlockStack>
-					</Card>
-					<Layout.Section variant="oneThird">
-						<BlockStack gap="500">
-							<Card>
-								<BlockStack gap="200">
-									<Text as="h2" variant="headingMd">
-										App template specs
-									</Text>
-									<BlockStack gap="200">
-										<InlineStack align="space-between">
-											<Text as="span" variant="bodyMd">
-												Framework
-											</Text>
-											<Link
-												url="https://remix.run"
-												target="_blank"
-												removeUnderline
-											>
-												Remix
-											</Link>
-										</InlineStack>
-										<InlineStack align="space-between">
-											<Text as="span" variant="bodyMd">
-												Database
-											</Text>
-											<Link
-												url="https://www.prisma.io/"
-												target="_blank"
-												removeUnderline
-											>
-												Prisma
-											</Link>
-										</InlineStack>
-										<InlineStack align="space-between">
-											<Text as="span" variant="bodyMd">
-												Interface
-											</Text>
-											<span>
-												<Link
-													url="https://polaris.shopify.com"
-													target="_blank"
-													removeUnderline
-												>
-													Polaris
-												</Link>
-												{", "}
-												<Link
-													url="https://shopify.dev/docs/apps/tools/app-bridge"
-													target="_blank"
-													removeUnderline
-												>
-													App Bridge
-												</Link>
-											</span>
-										</InlineStack>
-										<InlineStack align="space-between">
-											<Text as="span" variant="bodyMd">
-												API
-											</Text>
-											<Link
-												url="https://shopify.dev/docs/api/admin-graphql"
-												target="_blank"
-												removeUnderline
-											>
-												GraphQL API
-											</Link>
-										</InlineStack>
+									{fetcher.data?.product && (
+										<Button
+											url={`shopify:admin/products/${productId}`}
+											target="_blank"
+											variant="plain"
+										>
+											View product
+										</Button>
+									)}
+								</InlineStack>
+								{fetcher.data?.product && (
+									<BlockStack>
+										<Text as="h3" variant="headingMd">
+											{" "}
+											productCreate mutation
+										</Text>
+										<Box
+											padding="400"
+											background="bg-surface-active"
+											borderWidth="025"
+											borderRadius="200"
+											borderColor="border"
+											overflowX="scroll"
+										>
+											<pre style={{ margin: 0 }}>
+												<code>
+													{JSON.stringify(fetcher.data.product, null, 2)}
+												</code>
+											</pre>
+										</Box>
+										<Text as="h3" variant="headingMd">
+											{" "}
+											productVariantsBulkUpdate mutation
+										</Text>
+										<Box
+											padding="400"
+											background="bg-surface-active"
+											borderWidth="025"
+											borderRadius="200"
+											borderColor="border"
+											overflowX="scroll"
+										>
+											<pre style={{ margin: 0 }}>
+												<code>
+													{JSON.stringify(fetcher.data.variant, null, 2)}
+												</code>
+											</pre>
+										</Box>
 									</BlockStack>
-								</BlockStack>
-							</Card>
-							<Card>
-								<BlockStack gap="200">
-									<Text as="h2" variant="headingMd">
-										Next steps
-									</Text>
-									<List>
-										<List.Item>
-											Build an{" "}
-											<Link
-												url="https://shopify.dev/docs/apps/getting-started/build-app-example"
-												target="_blank"
-												removeUnderline
-											>
-												{" "}
-												example app
-											</Link>{" "}
-											to get started
-										</List.Item>
-										<List.Item>
-											Explore Shopify’s API with{" "}
-											<Link
-												url="https://shopify.dev/docs/apps/tools/graphiql-admin-api"
-												target="_blank"
-												removeUnderline
-											>
-												GraphiQL
-											</Link>
-										</List.Item>
-									</List>
-								</BlockStack>
-							</Card>
-						</BlockStack>
+								)}
+							</BlockStack>
+						</Card>
 					</Layout.Section>
 				</Layout>
 			</BlockStack>

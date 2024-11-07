@@ -1,23 +1,33 @@
+import { useSubmit } from "@remix-run/react";
 import {
 	Card,
 	DatePicker,
 	Button,
-	FormLayout,
 	BlockStack,
-	Box,
-	Icon,
 	Popover,
 	TextField,
+	PopoverCloseSource,
+	InlineStack,
 } from "@shopify/polaris";
-import { authenticate } from "app/shopify.server";
+import {SaveIcon} from '@shopify/polaris-icons';
 import { CalendarIcon } from "lucide-react";
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 
-async function saveExpirationDate(productId, expirationDate) {
-	// Make an API call to save expiration date in your backend
-}
-export const ExpirationManager = ({ productId }) => {
-	function nodeContainsDescendant(rootNode, descendant) {
+
+export const ExpirationManager = ({ productId, value }: { productId: string, value: string }) => {
+
+	const submit = useSubmit();
+
+	const [visible, setVisible] = useState(false);
+	const [selectedDate, setSelectedDate] = useState(value ? new Date(value) : new Date());
+	const [{ month, year }, setDate] = useState({
+		month: selectedDate.getMonth(),
+		year: selectedDate.getFullYear(),
+	});
+	const [formattedValue, setFormattedValue] = useState("");
+	const datePickerRef = useRef(null);
+
+	function nodeContainsDescendant(rootNode: any, descendant: any) {
 		if (rootNode === descendant) {
 			return true;
 		}
@@ -29,41 +39,59 @@ export const ExpirationManager = ({ productId }) => {
 			parent = parent.parentNode;
 		}
 		return false;
-	}
-	const [visible, setVisible] = useState(false);
-	const [selectedDate, setSelectedDate] = useState(new Date());
-	const [{ month, year }, setDate] = useState({
-		month: selectedDate.getMonth(),
-		year: selectedDate.getFullYear(),
-	});
-	const formattedValue = selectedDate.toISOString().slice(0, 10);
-	const datePickerRef = useRef(null);
-	function isNodeWithinPopover(node) {
+	}	
+
+	function isNodeWithinPopover(node: any) {
 		return datePickerRef?.current
 			? nodeContainsDescendant(datePickerRef.current, node)
 			: false;
 	}
+
 	function handleInputValueChange() {
 		console.log("handleInputValueChange");
 	}
-	function handleOnClose({ relatedTarget }) {
+
+	function handleOnClose(src: PopoverCloseSource) {
+		setSelectedDate(value ? new Date(value) : new Date());
 		setVisible(false);
 	}
-	function handleMonthChange(month, year) {
+
+	function handleMonthChange(month: number, year: number) {
 		setDate({ month, year });
 	}
-	function handleDateSelection({ end: newSelectedDate }) {
+
+	function handleDateSelection({ end: newSelectedDate }: any) {
 		setSelectedDate(newSelectedDate);
+		// setVisible(false);
+	}
+
+	async function saveExpirationDate(id: string, date: Date) {
+
+		const productId = id;
+		const expirationDate = date.toISOString().split('T')[0];
+	
+		const data = {
+			productId,
+			expirationDate,
+			action: "saveProduct"
+		}
+	
+		submit(data, { method: "POST" });
+
 		setVisible(false);
 	}
+
 	useEffect(() => {
 		if (selectedDate) {
 			setDate({
 				month: selectedDate.getMonth(),
 				year: selectedDate.getFullYear(),
 			});
+
+			setFormattedValue(selectedDate.toISOString().split('T')[0])
 		}
 	}, [selectedDate]);
+
 	return (
 		<Popover
 			active={visible}
@@ -86,18 +114,27 @@ export const ExpirationManager = ({ productId }) => {
 				/>
 			}
 		>
-			<Card ref={datePickerRef}>
-				<DatePicker
-					month={month}
-					year={year}
-					selected={selectedDate}
-					onMonthChange={handleMonthChange}
-					onChange={handleDateSelection}
-				/>
-				<Button onClick={() => saveExpirationDate(productId, selectedDate)}>
-					Save Expiration Date
-				</Button>
-			</Card>
+			<div ref={datePickerRef}>
+				<Card roundedAbove="sm">
+					<BlockStack gap="500">
+						<BlockStack gap="200">
+							<DatePicker
+								month={month}
+								year={year}
+								selected={selectedDate}
+								onMonthChange={handleMonthChange}
+								onChange={handleDateSelection}
+							/>
+						</BlockStack>
+
+						<InlineStack align="end">
+							<Button variant="primary" icon={SaveIcon} onClick={() => saveExpirationDate(productId, selectedDate)}>
+								Save Expiration Date
+							</Button>
+						</InlineStack>
+					</BlockStack>
+				</Card>
+			</div>
 		</Popover>
 	);
 };
