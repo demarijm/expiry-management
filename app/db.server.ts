@@ -4,12 +4,20 @@ declare global {
   var prisma: PrismaClient;
 }
 
-if (process.env.NODE_ENV !== "production") {
+let prisma: PrismaClient;
+
+if (process.env.NODE_ENV === 'production') {
+  prisma = new PrismaClient();
+  prisma.$connect();
+  console.log(" --------------- Production DB connected ---------------------");
+} else {
   if (!global.prisma) {
     global.prisma = new PrismaClient();
+    global.prisma.$connect();
+    console.log("---------------- Development DB connected --------------------");
   }
-}
 
-const prisma: PrismaClient = global.prisma || new PrismaClient();
+  prisma = global.prisma;
+}
 
 export default prisma;

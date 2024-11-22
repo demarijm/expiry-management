@@ -2,134 +2,168 @@ import {
 	Box,
 	Card,
 	Layout,
-	Link,
-	List,
 	Page,
 	Text,
 	BlockStack,
-	Button,
+	InlineGrid,
+	TextField,
+	Select,
 } from "@shopify/polaris";
-import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "app/shopify.server";
-import { ActionFunctionArgs, json, LoaderFunctionArgs } from "@remix-run/node";
+import { ActionFunction, json, LoaderFunction } from "@remix-run/node";
+import { useLoaderData, useNavigation, useSubmit } from "@remix-run/react";
+import { useCallback, useState } from "react";
+import { getSettings, saveSettings, SettingPayload } from "app/services/settings.server";
 
-export const loader = async ({ request }: LoaderFunctionArgs) => {
-	const { admin } = await authenticate.admin(request);
-	const response = await admin.graphql(
-		`#graphql
-      query getAllProducts {
-        products(first: 10) {
-          edges {
-            node {
-              id
-              title
-              handle
-              status
-              tags
-              variants(first: 10) {
-                edges {
-                  node {
-                    id
-                    price
-                    barcode
-                    createdAt
-                  }
-                }
-              }
-            }
-          }
-        }
-      }`,
-	);
-	const responseJson = await response.json();
+export const loader: LoaderFunction = async ({ request }) => {
+	const { session } = await authenticate.admin(request);
+
+	const settings = await getSettings(session.shop);
 
 	return json({
-		products: responseJson!.data.products.edges,
+		settings
 	});
 };
 
-// export const action = async ({ request }: ActionFunctionArgs) => {
-//     const { admin } = await authenticate.admin(request);
-//     const res = await admin.graphql(
-//         `#graphql
-//         mutation setExpiryDateMetafield {
+export const action: ActionFunction = async function({ request }) {
+	const { session } = await authenticate.admin(request);
 
-//         }
-//         `
-//     )
-// }
+	try {
+	  const formData = await request.formData();
+  
+	  const payload = {
+		warningPeriod: Number(formData.get("warningPeriod")) || 50,
+	  };
+  
+	  const response = await saveSettings(session.shop, payload);
+	  return response;
+	} catch (error) {
+	  return null;
+	}
+}
 
-export default function AdditionalPage() {
+export default function SettingsPage() {
+
+	const { settings } = useLoaderData<typeof loader>();
+
+	const initialData: SettingPayload = {
+		warningPeriod: 7,
+	};
+
+	if (settings) {
+		initialData.warningPeriod = settings.warningPeriod;
+	}
+
+	const [formState, setFormState] = useState<SettingPayload>(initialData);
+	const [cleanFormState, setCleanFormState] = useState<SettingPayload>(initialData);
+	const [selectedPeriod, setSelectedPeriod] = useState(settings ? String(settings.warningPeriod) : "7");
+	const [customDay, setCustomDay] = useState("");
+
+	const navigation = useNavigation();
+	const submit = useSubmit();
+
+	const isDirty = JSON.stringify(formState) !== JSON.stringify(cleanFormState);
+	const isSaving = navigation.state === "submitting";
+
+	const selectOptions = [
+		{ label: "1 Week", value: "7" },
+		{ label: "2 Weeks", value: "14" },
+		{ label: "1 Month", value: "30" },
+		{ label: "Custom Number", value: "custom" },
+	];
+
+	const handleSelectChange = useCallback(
+		(value: string) => {
+			setSelectedPeriod(value)
+
+			if(value !== 'custom') {
+				setFormState({
+					...formState,
+					warningPeriod: Number(value)
+				});
+				setCustomDay("");
+			} else {
+				setFormState(initialData);
+			}
+		},
+		[],
+	);
+
+	function onChangeCustomDay(value: string) {
+		setCustomDay(value);
+
+		if(value) {
+			setFormState({
+				...formState,
+				warningPeriod: Number(value)
+			});
+		} else {
+			setFormState(initialData);
+		}
+	}
+
+	function handleSave() {
+		const data: SettingPayload = {
+			warningPeriod: formState.warningPeriod
+		};
+
+		setCleanFormState({ ...formState });
+		submit(data, { method: "POST" });
+	}
+
 	return (
-		<Page>
-			<TitleBar title="Settings" />
+		<Page
+			narrowWidth
+			title="Settings"
+			primaryAction={{
+				content: "Save",
+				loading: isSaving,
+				disabled: !isDirty || isSaving,
+				onAction: handleSave,
+			}}
+		>
 			<Layout>
 				<Layout.Section>
-					<Card>
-						<BlockStack gap="300">
-							<Text as="h2" variant="headingSm">
-								Expiration date metafield
-							</Text>
-							<Text as="p" variant="bodyMd">
-								The app template comes with an additional page which
-								demonstrates how to create multiple pages within app navigation
-								using <Button>Create the metfaield</Button>
-								<Link
-									url="https://shopify.dev/docs/apps/tools/app-bridge"
-									target="_blank"
-									removeUnderline
-								>
-									App Bridge
-								</Link>
-								.
-							</Text>
-							<Text as="p" variant="bodyMd">
-								To create your own page and have it show up in the app
-								navigation, add a page inside <Code>app/routes</Code>, and a
-								link to it in the <Code>&lt;NavMenu&gt;</Code> component found
-								in <Code>app/routes/app.jsx</Code>.
-							</Text>
-						</BlockStack>
-					</Card>
-				</Layout.Section>
-				<Layout.Section variant="oneThird">
-					<Card>
-						<BlockStack gap="200">
-							<Text as="h2" variant="headingMd">
-								Resources
-							</Text>
-							<List>
-								<List.Item>
-									<Link
-										url="https://shopify.dev/docs/apps/design-guidelines/navigation#app-nav"
-										target="_blank"
-										removeUnderline
-									>
-										App nav best practices
-									</Link>
-								</List.Item>
-							</List>
-						</BlockStack>
-					</Card>
+					<BlockStack gap={{ xs: "800", sm: "400" }}>
+						<InlineGrid columns={{ xs: "1fr", md: "2fr 5fr" }} gap="400">
+							<Box
+								as="section"
+								paddingInlineStart={{ xs: "400", sm: "0" }}
+								paddingInlineEnd={{ xs: "400", sm: "0" }}
+							>
+								<BlockStack gap="400">
+									<Text as="h3" variant="headingMd">
+										App settings
+									</Text>
+									<Text as="p" variant="bodyMd">
+										Settings related to product expiration date.
+									</Text>
+								</BlockStack>
+							</Box>
+							<Card roundedAbove="sm">
+								<BlockStack gap="400">
+									<Select
+										label="Set default warning period"
+										options={selectOptions}
+										onChange={handleSelectChange}
+										value={selectedPeriod}
+									/>
+
+									{selectedPeriod === 'custom' && <TextField 
+										type="number"
+										label=""
+										placeholder="Enter number of days"
+										value={customDay}
+										onChange={onChangeCustomDay}
+										autoComplete=""
+									/>}
+									
+								</BlockStack>
+							</Card>
+						</InlineGrid>
+					</BlockStack>
 				</Layout.Section>
 			</Layout>
 		</Page>
-	);
-}
-
-function Code({ children }: { children: React.ReactNode }) {
-	return (
-		<Box
-			as="span"
-			padding="025"
-			paddingInlineStart="100"
-			paddingInlineEnd="100"
-			background="bg-surface-active"
-			borderWidth="025"
-			borderColor="border"
-			borderRadius="100"
-		>
-			<code>{children}</code>
-		</Box>
 	);
 }
