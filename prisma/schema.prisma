@@ -30,3 +30,18 @@ model Session {
   collaborator  Boolean?  @default(false)
   emailVerified Boolean?  @default(false)
 }
+
+model Settings {
+  id                    Int     @id  @default(autoincrement())
+  shop                  String  @unique
+  warningPeriod         Int     @default(7)
+}
+
+model Logs {
+  id                    Int     @id  @default(autoincrement())
+  shop                  String
+  action                String
+  description           String
+  type                  String
+  occured_at            DateTime @default(now())
+}

@@ -32,6 +32,7 @@
     "@shopify/polaris": "^12.0.0",
     "@shopify/shopify-app-remix": "^3.4.0",
     "@shopify/shopify-app-session-storage-prisma": "^5.1.5",
+    "date-fns": "^4.1.0",
     "isbot": "^5.1.0",
     "lucide-react": "^0.454.0",
     "prisma": "^5.11.0",

@@ -3,7 +3,22 @@ import { Badge, IndexTable, InlineStack, Link, Text, Thumbnail, useBreakpoints }
 import { format } from "date-fns";
 import { ImageIcon } from "lucide-react";
 
-const ProductTable = function ({ products }: { products: any[] }) {
+export type PageInfo = {
+    hasNextPage: boolean;
+    hasPreviousPage: boolean;
+    startCursor: string | null,
+    endCursor: string | null
+}
+
+type PaginatedTableProps = {
+    products: [];
+    pageInfo: PageInfo;
+    onNextPage: (after: string | null) => void;
+    onPreviousPage: (before: string | null) => void;
+    loading?: boolean
+}
+
+const PaginatedProductTable = function ({ products, pageInfo, onNextPage, onPreviousPage, loading }: PaginatedTableProps) {
 
     const navigate = useNavigate();
 
@@ -79,10 +94,17 @@ const ProductTable = function ({ products }: { products: any[] }) {
                 { title: "Expiration Status" }
             ]}
             selectable={false}
+            pagination={{
+                hasNext: pageInfo?.hasNextPage,
+                onNext: () => onNextPage(pageInfo?.endCursor),
+                hasPrevious: pageInfo?.hasPreviousPage,
+                onPrevious: () => onPreviousPage(pageInfo?.startCursor)
+            }}
+            loading={loading}
         >
             {rowMarkup}
         </IndexTable>
     );
 };
 
-export default ProductTable;
+export default PaginatedProductTable;

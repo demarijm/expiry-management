@@ -2,15 +2,15 @@ import { json } from "@remix-run/node";
 import { authenticate } from "app/shopify.server";
 
 export async function loadProducts(request: Request) {
-    const { admin } = await authenticate.admin(request);
-    const response = await admin.graphql(
-        `#graphql
+  const { admin } = await authenticate.admin(request);
+  const response = await admin.graphql(
+    `#graphql
       query getAllProducts {
         products(first: 10) {
           edges {
             node {
               id
-			  featuredMedia {
+			        featuredMedia {
                 preview {
                   image {
                     url
@@ -21,6 +21,7 @@ export async function loadProducts(request: Request) {
               handle
               status
               tags
+              totalInventory
               metafields(first: 50) {
                 edges {
                   node {
@@ -44,23 +45,21 @@ export async function loadProducts(request: Request) {
           }
         }
       }`,
-    );
-    const responseJson = await response.json();
+  );
+  const responseJson = await response.json();
 
-    return json({
-        products: responseJson!.data.products.edges,
-    });
+  return responseJson!.data.products.edges;
 }
 
 export async function generateProduct(request: Request) {
-    const { admin } = await authenticate.admin(request);
-    const color = ["Red", "Orange", "Yellow", "Green"][
-        Math.floor(Math.random() * 4)
-    ];
-    const response = await admin.graphql(
-        `#graphql
-            mutation populateProduct($input: ProductInput!) {
-              productCreate(input: $input) {
+  const { admin } = await authenticate.admin(request);
+  const color = ["Red", "Orange", "Yellow", "Green"][
+    Math.floor(Math.random() * 4)
+  ];
+  const response = await admin.graphql(
+    `#graphql
+            mutation populateProduct($input: ProductCreateInput!) {
+              productCreate(product: $input) {
                 product {
                   id
                   title
@@ -79,21 +78,21 @@ export async function generateProduct(request: Request) {
                 }
               }
             }`,
-        {
-            variables: {
-                "input": {
-                    "title": `${color} Snowboard`,
-                },
-            },
+    {
+      variables: {
+        input: {
+          title: `${color} Snowboard`,
         },
-    );
-    const responseJson = await response.json();
+      },
+    },
+  );
+  const responseJson = await response.json();
 
-    const product = responseJson.data!.productCreate!.product!;
-    const variantId = product.variants.edges[0]!.node!.id!;
+  const product = responseJson.data!.productCreate!.product!;
+  const variantId = product.variants.edges[0]!.node!.id!;
 
-    const variantResponse = await admin.graphql(
-        `#graphql
+  const variantResponse = await admin.graphql(
+    `#graphql
           mutation shopifyRemixTemplateUpdateVariant($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
             productVariantsBulkUpdate(productId: $productId, variants: $variants) {
               productVariants {
@@ -104,19 +103,19 @@ export async function generateProduct(request: Request) {
               }
             }
           }`,
-        {
-            variables: {
-                productId: product.id,
-                variants: [{ id: variantId, price: "100.00" }],
-            },
-        },
-    );
+    {
+      variables: {
+        productId: product.id,
+        variants: [{ id: variantId, price: "100.00" }],
+      },
+    },
+  );
 
-    const variantResponseJson = await variantResponse.json();
+  const variantResponseJson = await variantResponse.json();
 
-    return json({
-        product: responseJson!.data!.productCreate!.product,
-        variant:
-            variantResponseJson!.data!.productVariantsBulkUpdate!.productVariants,
-    });
+  return json({
+    product: responseJson!.data!.productCreate!.product,
+    variant:
+      variantResponseJson!.data!.productVariantsBulkUpdate!.productVariants,
+  });
 }
